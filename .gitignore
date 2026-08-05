@@ -1,0 +1,41 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Never commit a real secret. server/.env in this repo is the local demo config
+# and contains no production value, but the rule stands.
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Source archives of the other Hive projects happen to sit in this folder. They
+# are not part of this deliverable, one of them is 112 MB (GitHub rejects any
+# file over 100 MB outright), and the app bundles carry Firebase config files.
+# Nothing here belongs in the admin repository.
+*.zip
+*.aab
+*.apk
+*.ipa
+
+# Credentials, in any shape. The Firebase service-account key that shipped inside
+# bond-srv is exactly the kind of file this is here to stop — see docs/FINDINGS.md.
+*serviceaccount*.json
+*adminsdk*.json
+google-services*.json
+GoogleService-Info*.plist
+*.pem
+*.p12
+*.jks
+*.keystore
+
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.tsbuildinfo
+next-env.d.ts

@@ -1,0 +1,315 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Hive Admin — DynamoDB tables and the audit write role
+
+# Companion to bond-srv/tables.yaml. Only the admin-owned tables are here; the
+# consumer tables (Test_Table, hive_companion, hive_booking, hive_reviews) are
+# defined there and read by this module.
+#
+# The important part of this template is not the tables — it is AuditWriterRole
+# at the bottom. L-02 says nobody can edit or delete an audit entry, and the
+# application enforces that in code. This makes it true at the IAM layer too, so
+# a bug in the application cannot undo it.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: hive
+  Build:
+    Type: String
+    Default: prod
+  AppRoleArn:
+    Type: String
+    Description: ARN of the EC2 instance role bond-srv runs as
+
+Resources:
+
+  # ── Identity and sessions ──────────────────────────────────────────────────
+
+  AdminUsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: hive_admin_users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: adminId
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: adminId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: EmailIndex
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  AdminSessionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: hive_admin_sessions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: sessionId
+          AttributeType: S
+        - AttributeName: adminId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: sessionId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        # Revoking every session for a compromised admin (PRD §12) should not be
+        # a table scan — it is the thing you do while an incident is running.
+        - IndexName: AdminIndex
+          KeySchema:
+            - AttributeName: adminId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # ── The audit log ──────────────────────────────────────────────────────────
+
+  AuditTable:
+    Type: AWS::DynamoDB::Table
+    # Retained on stack deletion. Three years of evidence should not disappear
+    # because someone deleted the wrong CloudFormation stack.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: hive_admin_audit
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: eventId
+          AttributeType: S
+        - AttributeName: actorId
+          AttributeType: S
+        - AttributeName: at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: eventId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        # L-03 — searchable by actor and date range without a scan.
+        - IndexName: ActorAtIndex
+          KeySchema:
+            - AttributeName: actorId
+              KeyType: HASH
+            - AttributeName: at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: DataClass
+          Value: audit
+        - Key: RetentionYears
+          Value: '3'
+
+  # ── Operational tables ─────────────────────────────────────────────────────
+
+  KycSubmissionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: hive_admin_kyc_submissions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: submissionId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: idNumberHash
+          AttributeType: S
+      KeySchema:
+        - AttributeName: submissionId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UserIndex
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        # K-04 — duplicate detection is a lookup, not a scan.
+        - IndexName: IdNumberHashIndex
+          KeySchema:
+            - AttributeName: idNumberHash
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  GrievancesTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: hive_admin_grievances
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: grievanceId
+          AttributeType: S
+        - AttributeName: receivedAt
+          AttributeType: S
+        - AttributeName: assignedTo
+          AttributeType: S
+      KeySchema:
+        - AttributeName: grievanceId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        # G-11 — the regulatory export is a date-range query.
+        - IndexName: AssignedReceivedIndex
+          KeySchema:
+            - AttributeName: assignedTo
+              KeyType: HASH
+            - AttributeName: receivedAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: RetentionDays
+          Value: '180'
+
+  BankAccountsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: hive_admin_bank_accounts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: bankAccountId
+          AttributeType: S
+        - AttributeName: accountHash
+          AttributeType: S
+      KeySchema:
+        - AttributeName: bankAccountId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        # F-07 — the payout-mule control. A collision on this index is the signal.
+        - IndexName: AccountHashIndex
+          KeySchema:
+            - AttributeName: accountHash
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  UnmaskGrantsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: hive_admin_unmask_grants
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: grantId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: grantId
+          KeyType: HASH
+      # P-03 — grants expire. TTL means an abandoned grant cannot outlive its
+      # window because a sweep job stopped running.
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # Remaining tables follow the same single-key shape and are created by
+  # scripts/createAdminTables.js:
+  #   hive_admin_moderation, hive_admin_reports, hive_admin_disputes,
+  #   hive_admin_payouts, hive_admin_refunds, hive_admin_reconciliation,
+  #   hive_admin_deletion_requests, hive_admin_notifications
+
+  # ── IAM: the audit write path ──────────────────────────────────────────────
+
+  # L-02 at the infrastructure layer. The application assumes this role only to
+  # append audit entries. It can PutItem and nothing else — no UpdateItem, no
+  # DeleteItem, no DeleteTable. A bug, or a compromised admin session, cannot
+  # rewrite history even if the application-level guard were bypassed.
+  AuditWriterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Build}-admin-audit-writer'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref AppRoleArn
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AppendOnlyAudit
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:GetItem
+                Resource:
+                  - !GetAtt AuditTable.Arn
+                  - !Sub '${AuditTable.Arn}/index/*'
+              - Effect: Deny
+                Action:
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DeleteTable
+                  - dynamodb:UpdateTable
+                Resource: '*'
+
+  # The application's normal role must NOT be able to write the audit table
+  # directly, or assuming AuditWriterRole achieves nothing. Attach this to the
+  # bond-srv instance role.
+  DenyDirectAuditWritePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${ProjectName}-${Build}-deny-direct-audit-write'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Action:
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+              - dynamodb:BatchWriteItem
+              - dynamodb:DeleteTable
+            Resource: !GetAtt AuditTable.Arn
+
+Outputs:
+  AuditTableArn:
+    Value: !GetAtt AuditTable.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Build}-AdminAuditTableArn'
+  AuditWriterRoleArn:
+    Value: !GetAtt AuditWriterRole.Arn
+    Description: Set as ADMIN_AUDIT_ROLE_ARN so the audit write path assumes it
+    Export:
+      Name: !Sub '${ProjectName}-${Build}-AdminAuditWriterRoleArn'
+  AdminUsersTableArn:
+    Value: !GetAtt AdminUsersTable.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Build}-AdminUsersTableArn'

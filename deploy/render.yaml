@@ -1,0 +1,76 @@
+# Render blueprint — the admin API only.
+#
+#   Render dashboard → New → Blueprint → point at this repo
+#
+# The console is not here on purpose: it is a Next.js app and belongs on Vercel,
+# which builds and serves it better than a Docker container on Render will. See
+# docs/DEPLOYING.md § "Option B2a".
+#
+# If you would rather run both on your own infrastructure, use
+# deploy/docker-compose.yml instead — it covers both services.
+#
+# ── Order of operations ─────────────────────────────────────────────────────
+# ADMIN_CONSOLE_ORIGIN cannot be filled in until the console exists on Vercel,
+# and the console needs this service's URL to build. So: deploy this first with
+# ADMIN_CONSOLE_ORIGIN left unset, deploy the console pointing at the URL Render
+# gives you, then come back and set ADMIN_CONSOLE_ORIGIN. Render restarts the
+# service on an environment change, which is all this one needs.
+#
+# ── Plan ────────────────────────────────────────────────────────────────────
+# Free services sleep after 15 minutes idle and take ~50s to wake — the first
+# person in each morning will think it is broken. Starter is $7/month and does
+# not sleep. For a demo your team is actively reviewing, pay the $7.
+
+services:
+  - type: web
+    name: hive-admin-api
+    runtime: docker
+    dockerfilePath: ./deploy/Dockerfile.server
+    dockerContext: .
+    plan: starter
+    region: singapore          # closest Render region to ap-south-1
+    healthCheckPath: /admin/healthz
+
+    # Single instance, and this is not a tuning choice. The demo data driver keeps
+    # admin sessions in process memory, so a second replica would reject every
+    # token the first one minted. Raising this requires ADMIN_DATA_DRIVER=dynamodb.
+    numInstances: 1
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Seeded fixtures, reset on every restart and every deploy.
+      - key: ADMIN_DATA_DRIVER
+        value: memory
+
+      # Render generates and stores these; you never see or handle them.
+      # ADMIN_JWT_SECRET is AR-02/AR-03 — the service refuses to start without it.
+      - key: ADMIN_JWT_SECRET
+        generateValue: true
+      - key: ADMIN_HASH_PEPPER
+        generateValue: true
+
+      # Set by hand in the Render dashboard after the console exists.
+      # Full origin including https://, no trailing slash. Comma-separate to add
+      # Vercel preview URLs.
+      - key: ADMIN_CONSOLE_ORIGIN
+        sync: false
+
+      # The password for every seeded account. MUST be set — the default is
+      # published in this repository's README, and this will be on a URL your
+      # team can reach.
+      - key: ADMIN_SEED_PASSWORD
+        sync: false
+
+      # Shared TOTP secret so your team enrols once between them. Leave unset and
+      # a new one is generated on every restart, meaning everyone re-enrols after
+      # every deploy.
+      - key: ADMIN_DEMO_TOTP_SECRET
+        sync: false
+
+      # AR-07 — optional. Comma-separated IPs or CIDR ranges. Worth setting if
+      # your team works from one office or VPN: a leaked URL is then not a
+      # leaked console.
+      - key: ADMIN_IP_ALLOWLIST
+        sync: false

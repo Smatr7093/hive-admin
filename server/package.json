@@ -1,0 +1,30 @@
+{
+  "name": "hive-admin-server",
+  "version": "2.1.0",
+  "private": true,
+  "description": "Hive Admin Dashboard — /admin namespace for bond-srv",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "code": "node scripts/demoCode.js",
+    "setup:tables": "node scripts/createAdminTables.js",
+    "create:superadmin": "node scripts/createSuperAdmin.js",
+    "seed:demo": "node scripts/seedDemoData.js",
+    "verify:ar03": "node scripts/verifyAr03.js",
+    "test": "node scripts/smokeTest.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3"
+  },
+  "optionalDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1014.0",
+    "@aws-sdk/client-s3": "^3.1038.0",
+    "@aws-sdk/lib-dynamodb": "^3.1014.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

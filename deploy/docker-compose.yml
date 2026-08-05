@@ -1,0 +1,57 @@
+# Both services on one host. Run from the repository root:
+#
+#   cd deploy
+#   cp .env.deploy.example .env
+#   # fill in the three secrets, then:
+#   docker compose up -d --build
+#
+# The console is on :3100, the API on :4000. Put a TLS terminator in front of
+# both before anyone outside your network touches them — the admin surface
+# should never be reachable over plain HTTP.
+
+name: hive-admin
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      ADMIN_PORT: 4000
+      # AR-02/AR-03. The container will not start without this, and it must
+      # differ from the consumer JWT_SECRET.
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:?set ADMIN_JWT_SECRET in deploy/.env}
+      ADMIN_HASH_PEPPER: ${ADMIN_HASH_PEPPER:?set ADMIN_HASH_PEPPER in deploy/.env}
+      # AR-09. The only origin allowed to call this API cross-origin.
+      ADMIN_CONSOLE_ORIGIN: ${CONSOLE_URL:?set CONSOLE_URL in deploy/.env}
+      # memory = seeded demo data, resets on restart.
+      # dynamodb = the real tables. Read docs/DEPLOYING.md before switching.
+      ADMIN_DATA_DRIVER: ${ADMIN_DATA_DRIVER:-memory}
+      ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:?set ADMIN_SEED_PASSWORD in deploy/.env}
+      ADMIN_DEMO_TOTP_SECRET: ${ADMIN_DEMO_TOTP_SECRET:-}
+      # AR-07 — optional. Comma-separated IPs / CIDRs. Strongly recommended for
+      # anything reachable from the internet.
+      ADMIN_IP_ALLOWLIST: ${ADMIN_IP_ALLOWLIST:-}
+      ADMIN_KYC_RETENTION_POLICY: ${ADMIN_KYC_RETENTION_POLICY:-unresolved}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-}
+    # Single replica — see the note in Dockerfile.server.
+    deploy:
+      replicas: 1
+
+  console:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        # Baked into the bundle and the CSP at build time. Rebuild to change it.
+        NEXT_PUBLIC_ADMIN_API: ${API_URL:?set API_URL in deploy/.env}
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    depends_on:
+      - api

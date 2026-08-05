@@ -27,7 +27,7 @@ services:
     runtime: docker
     dockerfilePath: ./deploy/Dockerfile.server
     dockerContext: .
-    plan: starter
+    plan: free
     region: singapore          # closest Render region to ap-south-1
     healthCheckPath: /admin/healthz
 

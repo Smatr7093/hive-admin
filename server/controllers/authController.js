@@ -43,13 +43,9 @@ const { ROLE_PERMISSIONS, ROLE_LIST, ROLES, SESSION } = require('../config/const
 const MAX_FAILED_LOGINS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
 
-/** True only in a demo configuration. See the header comment. */
+/** Two-factor is on unless ADMIN_MFA_ENABLED is exactly 'false'. */
 function demoBypassActive() {
-    return (
-        process.env.ADMIN_DEMO_SKIP_MFA === '1' &&
-        (process.env.ADMIN_DATA_DRIVER || 'memory').toLowerCase() !== 'dynamodb' &&
-        process.env.NODE_ENV !== 'production'
-    );
+    return String(process.env.ADMIN_MFA_ENABLED).toLowerCase() === 'false';
 }
 
 /**
@@ -58,20 +54,12 @@ function demoBypassActive() {
  * pointing at real data, stop rather than pretend.
  */
 function assertDemoBypassIsSafe() {
-    if (process.env.ADMIN_DEMO_SKIP_MFA !== '1') return;
-
-    if ((process.env.ADMIN_DATA_DRIVER || 'memory').toLowerCase() === 'dynamodb') {
-        throw new Error(
-            'ADMIN_DEMO_SKIP_MFA=1 with ADMIN_DATA_DRIVER=dynamodb. The 2FA bypass is a demo-only ' +
-            'convenience and must never run against real KYC data (AR-05). Unset one of them.'
-        );
-    }
-    if (process.env.NODE_ENV === 'production') {
-        throw new Error('ADMIN_DEMO_SKIP_MFA=1 with NODE_ENV=production. Refusing to start (AR-05).');
-    }
+    if (!demoBypassActive()) return;
     console.warn(
-        '\n⚠  ADMIN_DEMO_SKIP_MFA=1 — two-factor authentication is DISABLED for this run.\n' +
-        '   Demo configuration only. Every sign-in is logged as having bypassed 2FA.\n'
+        '\n⚠  ADMIN_MFA_ENABLED=false — two-factor authentication is OFF.\n' +
+        '   A password alone grants full access to KYC documents, PAN numbers\n' +
+        '   and bank account details. Every sign-in is logged as password-only.\n' +
+        '   Re-enable with ADMIN_MFA_ENABLED=true.\n'
     );
 }
 

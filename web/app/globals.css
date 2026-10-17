@@ -198,3 +198,6 @@ tbody tr.clickable:hover { background: #faf7f3; cursor: pointer; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: rgba(44,44,44,.16); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* Mirrors an icon horizontally — the set has one chevron, pointing right. */
+.flip-x { transform: scaleX(-1); }

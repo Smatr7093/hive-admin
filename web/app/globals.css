@@ -201,3 +201,23 @@ tbody tr.clickable:hover { background: #faf7f3; cursor: pointer; }
 
 /* Mirrors an icon horizontally — the set has one chevron, pointing right. */
 .flip-x { transform: scaleX(-1); }
+
+/* ── KYC document viewer ──────────────────────────────────────────────────────
+   The watermarked document arrives as an inline SVG carrying only a viewBox,
+   so it takes the shape of whatever box it is put in. These rules are that
+   box: fit the whole document inside the panel, and inside the overlay fill
+   the screen without ever cropping — a reviewer cannot decide on a corner of
+   an ID card. */
+.doc-fit > svg {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 58vh;
+}
+.doc-fit-full > svg {
+    max-height: 92vh;
+    max-width: 92vw;
+    border-radius: var(--radius-sm);
+    background: var(--panel);
+}

@@ -325,6 +325,20 @@ function DocumentPreview({ submissionId, canDownload }: { submissionId: string; 
     const [error, setError] = useState<string | null>(null);
     const [downloading, setDownloading] = useState(false);
     const [downloadNote, setDownloadNote] = useState<string | null>(null);
+    const [zoomed, setZoomed] = useState(false);
+
+    // Escape closes the full-size view. Bound only while it is open, so it
+    // cannot swallow Escape from the reason dialogs on the same screen.
+    useEffect(() => {
+        if (!zoomed) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setZoomed(false); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [zoomed]);
+
+    // Switching between ID and selfie closes the overlay rather than leaving the
+    // previous document open behind it.
+    useEffect(() => { setZoomed(false); }, [kind]);
 
     useEffect(() => {
         setSvg(null);
@@ -346,7 +360,7 @@ function DocumentPreview({ submissionId, canDownload }: { submissionId: string; 
         >
             <div style={{
                 background: 'var(--bg)', borderRadius: 'var(--radius-md)', overflow: 'hidden',
-                minHeight: 300, display: 'grid', placeItems: 'center',
+                minHeight: 300, maxHeight: '58vh', display: 'grid', placeItems: 'center',
             }}>
                 {error && <span style={{ color: 'var(--muted-2)', fontSize: 13 }}>{error}</span>}
                 {!svg && !error && <div className="skeleton" style={{ width: '100%', height: 300 }} />}
@@ -354,9 +368,57 @@ function DocumentPreview({ submissionId, canDownload }: { submissionId: string; 
                     // The SVG is composed by our own server from our own S3 bucket and
                     // carries the watermark; rendering it inline is what keeps the
                     // watermark part of the image rather than a CSS overlay.
-                    <div style={{ width: '100%' }} dangerouslySetInnerHTML={{ __html: svg }} />
+                    //
+                    // `doc-fit` keeps the whole document inside the panel whatever
+                    // shape it is — these are phone photos of ID cards, almost
+                    // always portrait, and they were being cut off at the panel
+                    // edge. Clicking opens it full-size, because a reviewer
+                    // deciding on a blurry licence needs to actually read it.
+                    <div
+                        className="doc-fit"
+                        role="button"
+                        tabIndex={0}
+                        title="Click to open full size"
+                        onClick={() => setZoomed(true)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setZoomed(true); } }}
+                        style={{ cursor: 'zoom-in', maxHeight: '58vh', display: 'flex', justifyContent: 'center' }}
+                        dangerouslySetInnerHTML={{ __html: svg }}
+                    />
                 )}
             </div>
+
+            {zoomed && svg && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Document, full size"
+                    onClick={() => setZoomed(false)}
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 90,
+                        background: 'rgba(20,16,14,.85)',
+                        display: 'grid', placeItems: 'center', padding: 24,
+                        cursor: 'zoom-out',
+                    }}
+                >
+                    <button
+                        className="btn btn-sm"
+                        onClick={() => setZoomed(false)}
+                        aria-label="Close"
+                        style={{ position: 'absolute', top: 18, right: 20 }}
+                    >
+                        <Icon name="close" size={13} /> Close
+                    </button>
+                    <div
+                        className="doc-fit doc-fit-full"
+                        // Stops a click on the document itself closing the overlay,
+                        // so it can be scrolled and read rather than dismissed by
+                        // the first click that lands on it.
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ cursor: 'default', maxHeight: '92vh', maxWidth: '100%' }}
+                        dangerouslySetInnerHTML={{ __html: svg }}
+                    />
+                </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
                 <p style={{ flex: 1, fontSize: 11.5, color: 'var(--muted-2)', lineHeight: 1.5 }}>
                     Watermarked with your ID and the time you opened it. This view is logged.

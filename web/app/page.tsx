@@ -108,6 +108,21 @@ export default function DashboardPage() {
                         t.payouts.held ? `${t.payouts.held} held` : null,
                     ].filter(Boolean).join(' · ') || undefined}
                 />
+                {/* Bookings themselves. Every other tile here counts something
+                    that needs a person; this one answers "is anything actually
+                    happening", which was the question the dashboard could not
+                    answer at all — the only booking tile was the dispute count,
+                    correctly zero, which reads as "no bookings". */}
+                <StatTile
+                    href={t.bookings.href} label="Bookings" value={t.bookings.upcoming}
+                    caption={t.bookings.upcoming ? 'upcoming' : 'Nothing upcoming'}
+                    tone="ok"
+                    note={[
+                        t.bookings.awaitingCompanion ? `${t.bookings.awaitingCompanion} awaiting a companion` : null,
+                        t.bookings.inProgress ? `${t.bookings.inProgress} in progress` : null,
+                        `${t.bookings.total} all time`,
+                    ].filter(Boolean).join(' · ')}
+                />
                 <StatTile
                     href={t.disputes.href} label="Bookings in dispute" value={t.disputes.open}
                     caption={t.disputes.windowClosing ? `${t.disputes.windowClosing} closing within 4h` : '24h windows open'}

@@ -3,12 +3,26 @@
 Operations console for Hive (Siante Technologies Private Limited), built to
 [`hive-v21-admin-dashboard-prd.md`](../hive-v21-admin-dashboard-prd.md).
 
-Two applications:
+## What is in this folder
 
 | | | |
 |---|---|---|
-| `server/` | Express, DynamoDB | The `/admin` namespace for `bond-srv` — separate auth, RBAC, append-only audit log |
-| `web/` | Next.js 15, Tailwind v4 | The console. Separate app, separate deploy, strict CSP |
+| `web/` | Next.js 15, Tailwind v4 | **The live console.** This is the part that runs. Separate app, separate deploy, strict CSP. Runs on `:3100`. |
+| `server/` | Express, DynamoDB | **Superseded — do not edit.** See below. |
+
+### ⚠ `server/` is a copy that no longer runs
+
+The admin API was migrated into **`bond-srv/admin/`**, and that is the copy
+mounted under `/admin` on the live server. The two directories still hold files
+with identical names — `authController.js`, `kycController.js`,
+`financeController.js` and the rest — so it is very easy to edit the wrong one
+and watch nothing happen.
+
+The history makes it plain: `server/` was last touched 11 Oct 2026, `web/` on
+1 Nov. Anything you change here has no effect on production.
+
+**Work in `bond-srv/admin/`.** This folder is kept for history, not use, and
+deleting it is a decision nobody has made yet.
 
 ---
 

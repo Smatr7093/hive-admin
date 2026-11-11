@@ -1,15 +1,26 @@
 /**
  * Admin API client.
  *
- * The session token lives in a module-level variable, never in localStorage or a
- * cookie. That is deliberate: an admin token grants access to every KYC document
- * Hive holds, and localStorage survives tab close, is readable by any script
- * that gets injected, and outlives the 30-minute idle timeout the server
- * enforces. In-memory means closing the tab ends the session, which is the
- * behaviour you want on a shared or stolen laptop.
+ * The session lives in an httpOnly cookie set by the server, and the browser
+ * sends it automatically. JavaScript cannot read it — not this code, not a
+ * script someone manages to inject — which is strictly stronger than
+ * localStorage, where any injected script can simply read the token out.
  *
- * The cost is a re-login on refresh. For a tool used in eight-hour shifts by a
- * handful of people, that is the right trade.
+ * It used to be a module-level variable and nothing else. The reasoning was
+ * sound (an admin token opens every KYC document Hive holds, so it should not
+ * sit anywhere readable) but the cost was a re-login on every browser refresh,
+ * mid-decision, with no warning. The cookie keeps the security property and
+ * drops the cost.
+ *
+ * The in-memory `token` below is still used for the Authorization header when
+ * we have one, so anything scripted against this API keeps working. After a
+ * refresh it is null and the cookie carries the session instead.
+ *
+ * CSRF: the cookie is SameSite=None, because the console and the API are not
+ * always on the same site. So every request carries X-Hive-Console, a header a
+ * cross-origin page cannot set without a preflight the API answers only for the
+ * console's own origin. The server rejects cookie-authenticated writes without
+ * it.
  */
 
 const BASE = process.env.NEXT_PUBLIC_ADMIN_API ?? 'http://localhost:4000';
@@ -46,21 +57,29 @@ type Options = {
     method?: string;
     body?: unknown;
     raw?: boolean;
+    /**
+     * Suppress the "your session ended" announcement for a 401. Used by the
+     * boot-time restore, where no session is the normal case for a first visit
+     * and telling someone their session ended when they never had one is a lie.
+     */
+    quiet?: boolean;
 };
 
 export async function api<T = any>(path: string, options: Options = {}): Promise<T> {
-    const { method = 'GET', body, raw = false } = options;
+    const { method = 'GET', body, raw = false, quiet = false } = options;
 
     const res = await fetch(`${BASE}/admin${path}`, {
         method,
         headers: {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
             ...(body ? { 'Content-Type': 'application/json' } : {}),
+            // Proves the request came from this app. See the note at the top.
+            'X-Hive-Console': '1',
         },
         body: body ? JSON.stringify(body) : undefined,
-        // No cookies, so no CSRF surface. The Authorization header is the only
-        // credential and it cannot be attached by a cross-site form post.
-        credentials: 'omit',
+        // Sends the httpOnly session cookie. The API answers with
+        // Access-Control-Allow-Credentials only for its configured origins.
+        credentials: 'include',
     });
 
     if (raw) {
@@ -80,7 +99,9 @@ export async function api<T = any>(path: string, options: Options = {}): Promise
         // shows why rather than silently bouncing to the login form — "you were
         // signed out" without a reason reads as a bug.
         token = null;
-        onUnauthorized?.(json?.code ?? 'UNAUTHORIZED', json?.message ?? 'Your session has ended');
+        if (!quiet) {
+            onUnauthorized?.(json?.code ?? 'UNAUTHORIZED', json?.message ?? 'Your session has ended');
+        }
         throw new ApiError(401, json?.code ?? 'UNAUTHORIZED', json?.message ?? 'Session ended', json);
     }
 
@@ -98,8 +119,11 @@ export function documentUrl(submissionId: string, kind: 'gov-id' | 'selfie') {
 
 export async function fetchDocument(submissionId: string, kind: 'gov-id' | 'selfie'): Promise<string> {
     const res = await fetch(documentUrl(submissionId, kind), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: 'omit',
+        headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            'X-Hive-Console': '1',
+        },
+        credentials: 'include',
     });
     if (!res.ok) throw new ApiError(res.status, 'DOCUMENT_ERROR', 'Could not load the document');
     return res.text();
@@ -113,8 +137,11 @@ export async function fetchDocument(submissionId: string, kind: 'gov-id' | 'self
  */
 export async function downloadDocument(submissionId: string, kind: 'gov-id' | 'selfie', reason: string) {
     const res = await fetch(`${documentUrl(submissionId, kind)}?download=1&reason=${encodeURIComponent(reason)}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: 'omit',
+        headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            'X-Hive-Console': '1',
+        },
+        credentials: 'include',
     });
     if (!res.ok) {
         let message = 'Download refused';
@@ -143,6 +170,42 @@ export type Admin = {
     status: string;
 };
 
+/**
+ * Rebuild a session from the httpOnly cookie, on page load.
+ *
+ * Returns null rather than throwing when there is no usable session — a cold
+ * visit and an expired cookie are both ordinary, not errors to surface. The
+ * server is the authority: if it says the session idled out, was revoked, or
+ * has passed its eight hours, this comes back null and the login form shows.
+ */
+export async function restoreSession(): Promise<
+    { admin: Admin; expiresAt: string; idleTimeoutSeconds: number } | null
+> {
+    try {
+        const res = await api<{ success: boolean; data: any }>('/auth/me', { quiet: true });
+        const d = res?.data;
+        if (!d?.adminId) return null;
+        const idleTimeoutSeconds = d.idleDeadline
+            ? Math.max(0, Math.floor((Date.parse(d.idleDeadline) - Date.now()) / 1000))
+            : 1800;
+        return {
+            admin: {
+                adminId: d.adminId,
+                email: d.email,
+                name: d.name,
+                role: d.role,
+                permissions: d.permissions ?? [],
+                status: d.status,
+            },
+            expiresAt: d.sessionExpiresAt,
+            idleTimeoutSeconds,
+        };
+    } catch {
+        // 401 already cleared the token and notified the session handler.
+        return null;
+    }
+}
+
 export type Session = {
     token: string;
     expiresAt: string;
@@ -163,9 +226,11 @@ export type LoginResult =
 export async function login(email: string, password: string): Promise<LoginResult> {
     const res = await fetch(`${BASE}/admin/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Hive-Console': '1' },
         body: JSON.stringify({ email, password }),
-        credentials: 'omit',
+        // Must be 'include', or the browser throws away the Set-Cookie on this
+        // response and the session cookie is never stored.
+        credentials: 'include',
     });
     const json = await res.json();
     if (!res.ok) throw new ApiError(res.status, json?.code ?? 'LOGIN_FAILED', json?.message ?? 'Sign-in failed', json);
@@ -176,9 +241,10 @@ export async function login(email: string, password: string): Promise<LoginResul
 export async function verifyMfa(challengeToken: string, code: string, recoveryCode?: string) {
     const res = await fetch(`${BASE}/admin/auth/mfa`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Hive-Console': '1' },
         body: JSON.stringify({ challengeToken, code, recoveryCode }),
-        credentials: 'omit',
+        // As above: this is the response that carries the session cookie.
+        credentials: 'include',
     });
     const json = await res.json();
     if (!res.ok) throw new ApiError(res.status, json?.code ?? 'MFA_FAILED', json?.message ?? 'Verification failed', json);

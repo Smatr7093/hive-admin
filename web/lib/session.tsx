@@ -18,7 +18,7 @@
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Admin, setToken, setUnauthorizedHandler, logout as apiLogout } from './api';
+import { Admin, setToken, setUnauthorizedHandler, logout as apiLogout, restoreSession } from './api';
 
 type SessionState = {
     admin: Admin | null;
@@ -28,6 +28,12 @@ type SessionState = {
     endedReason: string | null;
     /** True when the server is running the demo 2FA bypass. Drives a standing banner. */
     mfaBypassed: boolean;
+    /**
+     * True until the boot-time session restore has answered. The frame shows
+     * nothing while this is true rather than the login form, so a refresh with
+     * a valid cookie does not flash a sign-in screen on its way back in.
+     */
+    restoring: boolean;
 };
 
 type SessionContextValue = SessionState & {
@@ -49,6 +55,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const [absoluteSecondsLeft, setAbsoluteSecondsLeft] = useState(0);
     const [endedReason, setEndedReason] = useState<string | null>(null);
     const [mfaBypassed, setMfaBypassed] = useState(false);
+    const [restoring, setRestoring] = useState(true);
 
     const idleTimeout = useRef(1800);
     const lastActivity = useRef(Date.now());
@@ -71,6 +78,28 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
             end(readable[code] ?? message);
         });
     }, [end]);
+
+    // On load, ask the server whether the httpOnly cookie still names a live
+    // session. The cookie itself is unreadable here by design, so this is the
+    // only way to know — and the server is the authority on the idle and
+    // absolute timeouts anyway, so asking it is the correct answer rather than
+    // a workaround.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            const restored = await restoreSession();
+            if (cancelled) return;
+            if (restored) {
+                idleTimeout.current = restored.idleTimeoutSeconds;
+                lastActivity.current = Date.now();
+                setAdmin(restored.admin);
+                setExpiresAt(restored.expiresAt);
+                setIdleSecondsLeft(restored.idleTimeoutSeconds);
+            }
+            setRestoring(false);
+        })();
+        return () => { cancelled = true; };
+    }, []);
 
     const signIn = useCallback((
         nextAdmin: Admin,
@@ -129,12 +158,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         absoluteSecondsLeft,
         endedReason,
         mfaBypassed,
+        restoring,
         signIn,
         signOut,
         touch,
         can: (permission: string) => !!admin?.permissions?.includes(permission),
         isSuperAdmin: admin?.role === 'super_admin',
-    }), [admin, expiresAt, idleSecondsLeft, absoluteSecondsLeft, endedReason, mfaBypassed, signIn, signOut, touch]);
+    }), [admin, expiresAt, idleSecondsLeft, absoluteSecondsLeft, endedReason, mfaBypassed, restoring, signIn, signOut, touch]);
 
     return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

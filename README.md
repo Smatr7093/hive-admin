@@ -1,4 +1,4 @@
-# Hive Admin Dashboard — v2.1
+# Hive Admin Dashboard - v2.1
 
 Operations console for Hive (Siante Technologies Private Limited), built to
 [`hive-v21-admin-dashboard-prd.md`](../hive-v21-admin-dashboard-prd.md).
@@ -8,14 +8,14 @@ Operations console for Hive (Siante Technologies Private Limited), built to
 | | | |
 |---|---|---|
 | `web/` | Next.js 15, Tailwind v4 | **The live console.** This is the part that runs. Separate app, separate deploy, strict CSP. Runs on `:3100`. |
-| `server/` | Express, DynamoDB | **Superseded — do not edit.** See below. |
+| `server/` | Express, DynamoDB | **Superseded - do not edit.** See below. |
 
 ### ⚠ `server/` is a copy that no longer runs
 
 The admin API was migrated into **`bond-srv/admin/`**, and that is the copy
 mounted under `/admin` on the live server. The two directories still hold files
-with identical names — `authController.js`, `kycController.js`,
-`financeController.js` and the rest — so it is very easy to edit the wrong one
+with identical names - `authController.js`, `kycController.js`,
+`financeController.js` and the rest - so it is very easy to edit the wrong one
 and watch nothing happen.
 
 The history makes it plain: `server/` was last touched 11 Oct 2026, `web/` on
@@ -50,8 +50,8 @@ secret, so one authenticator entry covers all of them.
 |---|---|---|
 | `naveen@tryhive.in` | Super Admin | Everything, plus admin accounts and the audit chain |
 | `grievance@tryhive.in` | Super Admin | The Grievance Officer account |
-| `ops@tryhive.in` | Ops | KYC, moderation, reports, disputes — PII unmasked |
-| `support@tryhive.in` | Support | Tickets and goodwill — **PII masked by default** |
+| `ops@tryhive.in` | Ops | KYC, moderation, reports, disputes - PII unmasked |
+| `support@tryhive.in` | Support | Tickets and goodwill - **PII masked by default** |
 | `finance@tryhive.in` | Finance | Payouts, refunds, reconciliation |
 | `readonly@tryhive.in` | Read-only | Dashboard counters and nothing else |
 
@@ -87,14 +87,14 @@ It prints the current code and the next one, so a code that is about to expire
 does not mean rerunning it.
 
 Set `ADMIN_DEMO_TOTP_SECRET` in `server/.env` to keep the secret stable across
-restarts — otherwise a fresh one is generated each time. (`.env` is gitignored;
+restarts - otherwise a fresh one is generated each time. (`.env` is gitignored;
 copy `.env.example`.)
 
 Sign in as `support@` and then `ops@` to see the same records with and without
-PII masking — that contrast is the clearest demonstration of §4.
+PII masking - that contrast is the clearest demonstration of §4.
 
 > The session token is held in memory only, never in `localStorage` or a cookie.
-> Refreshing the page signs you out. That is deliberate — see
+> Refreshing the page signs you out. That is deliberate - see
 > [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ### Demo data
@@ -133,7 +133,7 @@ every change to the auth path.**
 
 ## Deploying
 
-### Server — mount into `bond-srv`
+### Server - mount into `bond-srv`
 
 Copy `server/` to `bond-srv/admin/`, then in `server.js`:
 
@@ -150,7 +150,7 @@ Then:
 
 ```bash
 cd admin
-cp .env.example .env          # fill in ADMIN_JWT_SECRET — the process refuses to start without it
+cp .env.example .env          # fill in ADMIN_JWT_SECRET - the process refuses to start without it
 ADMIN_DATA_DRIVER=dynamodb node scripts/createAdminTables.js
 ADMIN_DATA_DRIVER=dynamodb node scripts/createSuperAdmin.js you@tryhive.in "Your Name"
 ```
@@ -159,7 +159,7 @@ Create **two** Super Admins. PRD §12 requires a second one to reset a lost 2FA
 device, and `resetAdminMfa` refuses to act on the caller's own account. With one
 Super Admin and a lost phone there is no recovery path from the console.
 
-### Console — separate subdomain
+### Console - separate subdomain
 
 `admin.tryhive.in`, not a path on the marketing site (AR-01, AR-09).
 
@@ -170,7 +170,7 @@ npm start
 ```
 
 `NEXT_PUBLIC_ADMIN_API` is pinned into the CSP `connect-src`, so the console can
-only talk to that one origin. Set `ADMIN_CONSOLE_ORIGIN` on the server to match —
+only talk to that one origin. Set `ADMIN_CONSOLE_ORIGIN` on the server to match -
 it is the only origin the API accepts cross-origin requests from.
 
 ---
@@ -182,7 +182,7 @@ server/
   config/constants.js      Roles, the permission matrix, every fixed reason list, SLA windows
   config/tables.js         Table names; APPEND_ONLY_TABLES is what enforces L-02
   lib/store.js             Two drivers (memory, dynamodb) behind one interface
-  lib/crypto.js            scrypt, TOTP, hashing — zero npm dependencies
+  lib/crypto.js            scrypt, TOTP, hashing - zero npm dependencies
   lib/audit.js             The append-only log and its hash chain
   lib/mask.js              PII masking and per-record unmask grants
   lib/sla.js               Grievance clock computation
@@ -206,25 +206,25 @@ web/
 
 ## What is not built, and why
 
-**§8.3 — the tax module (F-13 … F-17).** Gated on the CA consultation for 194-O
+**§8.3 - the tax module (F-13 … F-17).** Gated on the CA consultation for 194-O
 TDS and GST TCS applicability. The endpoints exist and return `501` with the
 blocking dependency attached; the console shows the gate as an explicit blocked
 state with the questions to ask. Building against a guess would mean companions
 querying Form 16A figures that do not reconcile with what they were paid, and the
 retrofit after six months of live payouts is a manual reconstruction of every
 one. The PRD's own recommendation is to resolve this **before the v2.0 payout
-code is written**, not before v2.1 — that ordering is the important part.
+code is written**, not before v2.1 - that ordering is the important part.
 
-**U-07 — the KYC branch of the deletion retention record.** `tryhive.in/privacy`
+**U-07 - the KYC branch of the deletion retention record.** `tryhive.in/privacy`
 says KYC data is deleted on account deletion; `tryhive.in/delete-account` says it
 is retained up to 8 years for financial compliance. Both cannot be true. Rather
 than pick one and quietly encode it, `ADMIN_KYC_RETENTION_POLICY` defaults to
 `unresolved` and the deletion queue refuses to complete any deletion involving a
 KYC record until someone sets it to `delete` or `retain`. Everything else in the
-deletion queue works — blockers, deferral, the retention plan for all other
+deletion queue works - blockers, deferral, the retention plan for all other
 categories.
 
-**U-08 — blocked-contact-share history.** Depends on v2.2 chat. The panel is
+**U-08 - blocked-contact-share history.** Depends on v2.2 chat. The panel is
 present and says so, rather than being silently absent.
 
 ---
@@ -254,8 +254,8 @@ Where the code takes a position, it is noted:
 
 ## Also read
 
-- [`docs/DEPLOYING.md`](docs/DEPLOYING.md) — hosting it for your team, and what changes for the real thing
-- [`docs/PRD-COVERAGE.md`](docs/PRD-COVERAGE.md) — every requirement ID and where it lives
-- [`docs/SECURITY.md`](docs/SECURITY.md) — how AR-03 is enforced, and what to harden before go-live
-- [`docs/FINDINGS.md`](docs/FINDINGS.md) — **issues found in `bond-srv` while building this.**
+- [`docs/DEPLOYING.md`](docs/DEPLOYING.md) - hosting it for your team, and what changes for the real thing
+- [`docs/PRD-COVERAGE.md`](docs/PRD-COVERAGE.md) - every requirement ID and where it lives
+- [`docs/SECURITY.md`](docs/SECURITY.md) - how AR-03 is enforced, and what to harden before go-live
+- [`docs/FINDINGS.md`](docs/FINDINGS.md) - **issues found in `bond-srv` while building this.**
   One of them is a complete authentication bypass. Read it before Phase 1 ships.

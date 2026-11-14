@@ -138,8 +138,10 @@ Before go-live:
 - Give the audit table its own IAM role holding `dynamodb:PutItem` and nothing
   else, and use it only for that write path. Today the application's normal
   credentials could delete the table.
-- Enable point-in-time recovery on every admin table (`createAdminTables.js` sets
-  this) and confirm it in the console.
+- ~~Enable point-in-time recovery on every admin table~~ Done 14 Nov 2026 -
+  enabled and verified on all production tables. Note `CreateTable` cannot set
+  PITR; `bond-srv/admin/scripts/createAdminTables.js` now calls
+  `UpdateContinuousBackups` separately (bond-srv `512c3c7`).
 - Consider streaming audit entries to CloudWatch Logs with a retention lock, or
   to S3 Object Lock in compliance mode. That gets you an append-only store the
   application's credentials genuinely cannot touch, which is what L-02 is really
